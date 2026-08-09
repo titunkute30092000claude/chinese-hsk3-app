@@ -1,0 +1,67 @@
+name: Build unsigned iOS IPA (for Sideloadly)
+
+# Runs on GitHub's free macOS runners — no Mac or paid Apple account needed
+# on your end. Produces an .ipa with NO code signature; Sideloadly signs it
+# itself using your free Apple ID when you install it (that's the part that
+# gives you the normal 7-day free-provisioning expiry).
+#
+# Trigger manually from the "Actions" tab on GitHub ("Run workflow" button),
+# or it runs automatically whenever you push to main.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Generate the native iOS project
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: pod install
+
+      - name: Archive the app (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild archive \
+            -workspace ChineseHSK3.xcworkspace \
+            -scheme ChineseHSK3 \
+            -configuration Release \
+            -archivePath "$PWD/build/ChineseHSK3.xcarchive" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package as .ipa
+        working-directory: ios
+        run: |
+          mkdir -p build/Payload
+          cp -r "build/ChineseHSK3.xcarchive/Products/Applications/ChineseHSK3.app" build/Payload/
+          cd build
+          zip -rq ChineseHSK3-unsigned.ipa Payload
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChineseHSK3-unsigned-ipa
+          path: ios/build/ChineseHSK3-unsigned.ipa
+          retention-days: 30
